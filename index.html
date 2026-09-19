@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>کارت پروفایل دانش‌آموزی | مدرسه شهید نیاسری ۱</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Vazirmatn',Tahoma,sans-serif;
+    background:linear-gradient(160deg,#0f2b5b,#1e3a8a 40%,#2563eb);
+    min-height:100vh;
+    display:flex;align-items:center;justify-content:center;
+    padding:24px;direction:rtl;
+  }
+  .box{
+    background:#fff;border-radius:20px;padding:26px 22px;
+    max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);
+    text-align:center;
+  }
+  h1{font-size:16px;color:#1e3a8a;font-weight:800;margin-bottom:4px}
+  .sub{font-size:12px;color:#64748b;margin-bottom:18px}
+  input{
+    width:100%;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:10px;
+    font-family:inherit;font-size:15px;text-align:center;letter-spacing:1px;
+    box-sizing:border-box;margin-bottom:10px;direction:ltr;
+  }
+  input:focus{outline:none;border-color:#2563eb}
+  button{
+    width:100%;padding:12px;border:none;border-radius:10px;
+    font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;
+    background:linear-gradient(135deg,#2563eb,#1e40af);color:#fff;
+    box-shadow:0 4px 14px rgba(37,99,235,.35);
+  }
+  button:disabled{opacity:.6;cursor:default}
+  #msg{font-size:13px;margin-top:10px;min-height:18px}
+  #msg.err{color:#dc2626}
+  #msg.ok{color:#16a34a}
+  #cardWrap{display:none;margin-top:20px}
+  #cardCanvas{width:100%;max-width:340px;height:auto}
+  #dlBtn{margin-top:16px;background:linear-gradient(135deg,#16a34a,#15803d);box-shadow:0 4px 14px rgba(22,163,74,.35)}
+  .foot{font-size:10.5px;color:#94a3b8;margin-top:16px;line-height:1.9}
+</style>
+</head>
+<body>
+
+<div class="box">
+  <h1>🎓 کارت پروفایل دانش‌آموزی</h1>
+  <div class="sub">مدرسه شهید نیاسری ۱ — کد ملی خود را وارد کنید</div>
+
+  <input type="text" id="kodMelli" placeholder="کد ملی (۱۰ رقم)" maxlength="10" inputmode="numeric">
+  <button id="goBtn" onclick="fetchCard()">🔍 نمایش کارت من</button>
+  <div id="msg"></div>
+
+  <div id="cardWrap">
+    <canvas id="cardCanvas" width="1000" height="1300"></canvas>
+    <button id="dlBtn" onclick="downloadCard()">📥 دانلود تصویر کارت</button>
+  </div>
+
+  <div class="foot">این کارت به‌صورت خودکار از اطلاعات ثبت‌نامی شما ساخته می‌شود.<br>اگر عکس یا نام شما درست نمایش داده نشد، به دفتر مدرسه اطلاع دهید.</div>
+</div>
+
+<script>
+// ===== تنظیمات (این آدرس را با آدرس Apps Script سامانه مدرسه خودتان جایگزین کنید) =====
+var SHEETS_URL = "https://script.google.com/macros/s/AKfycbzPSZPn4SYkRpAVLUuHNCozNbi87oiJ5SjI5dWgRaWzW-xQMjZeQtOcbHIYUHsFb0a7/exec";
+var SCHOOL_NAME = "دبستان پسرانه شهید نیاسری ۱";
+var SCHOOL_MOTTO = "مدرسه‌ای برای فردای روشن";
+
+function setMsg(text, cls){
+  var m = document.getElementById('msg');
+  m.textContent = text || '';
+  m.className = cls || '';
+}
+
+async function fetchCard(){
+  var kod = document.getElementById('kodMelli').value.trim();
+  if(!kod){ setMsg('کد ملی را وارد کنید','err'); return; }
+  if(!SHEETS_URL || SHEETS_URL.indexOf('PASTE_YOUR') === 0){
+    setMsg('آدرس سامانه هنوز تنظیم نشده است (تماس با مدیر سامانه)','err');
+    return;
+  }
+  var btn = document.getElementById('goBtn');
+  btn.disabled = true;
+  setMsg('⏳ در حال جستجو...', '');
+  document.getElementById('cardWrap').style.display = 'none';
+  try{
+    var res = await fetch(SHEETS_URL + '?action=getProfileCard&kodMelli=' + encodeURIComponent(kod) + '&t=' + Date.now());
+    var json = await res.json();
+    if(!json.found){
+      setMsg('❌ دانش‌آموزی با این کد ملی پیدا نشد', 'err');
+      btn.disabled = false;
+      return;
+    }
+    setMsg('⏳ در حال ساخت کارت...', '');
+    await drawCard(json.data);
+    setMsg('✅ کارت شما آماده است', 'ok');
+    document.getElementById('cardWrap').style.display = 'block';
+  }catch(e){
+    setMsg('❌ خطا در ارتباط با سامانه. دوباره تلاش کنید', 'err');
+  }
+  btn.disabled = false;
+}
+
+function loadImg(src){
+  return new Promise(function(resolve){
+    if(!src){ resolve(null); return; }
+    var img = new Image();
+    if(src.indexOf('data:') !== 0) img.crossOrigin = 'anonymous';
+    img.onload = function(){ resolve(img); };
+    img.onerror = function(){ resolve(null); };
+    img.src = src;
+  });
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+// کپسول با شعاع جداگانه بالا/پایین (بالا کمی گردتر و کم‌قوس‌تر، پایین کاملا نیم‌دایره)
+function capsulePath(ctx,x,y,w,h,topR,botR){
+  ctx.beginPath();
+  ctx.moveTo(x, y+topR);
+  ctx.arcTo(x, y, x+topR, y, topR);
+  ctx.lineTo(x+w-topR, y);
+  ctx.arcTo(x+w, y, x+w, y+topR, topR);
+  ctx.lineTo(x+w, y+h-botR);
+  ctx.arcTo(x+w, y+h, x+w-botR, y+h, botR);
+  ctx.lineTo(x+botR, y+h);
+  ctx.arcTo(x, y+h, x, y+h-botR, botR);
+  ctx.closePath();
+}
+// کپسول با گوشه‌های گرد فقط سمت راست (برای اتصال به بخش سفید هر ردیف)
+function rightRoundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x,y);
+  ctx.lineTo(x+w-r,y);
+  ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);
+  ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x,y+h);
+  ctx.closePath();
+}
+function drawFlagBadge(ctx,cx,cy,r){
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+  ctx.lineWidth=6; ctx.strokeStyle='#c9a227'; ctx.stroke();
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,r-10,0,Math.PI*2); ctx.clip();
+  var fh=(r-10)*2, fy=cy-(r-10), fw=fh*1.5, fx=cx-fw/2;
+  ctx.fillStyle='#239f40'; ctx.fillRect(fx,fy,fw,fh/3);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(fx,fy+fh/3,fw,fh/3);
+  ctx.fillStyle='#da0000'; ctx.fillRect(fx,fy+2*fh/3,fw,fh/3);
+  ctx.fillStyle='#b8860b'; ctx.beginPath(); ctx.arc(cx,cy,fh*0.09,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+function drawIconBadge(ctx,cx,cy,r,emoji,bg){
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fillStyle=bg||'#fff'; ctx.fill();
+  ctx.lineWidth=5; ctx.strokeStyle='#c9a227'; ctx.stroke();
+  ctx.font=Math.round(r*1.15)+'px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(emoji, cx, cy+r*0.06);
+  ctx.restore();
+}
+function star(ctx,cx,cy,r,color){
+  ctx.save();
+  ctx.fillStyle=color; ctx.beginPath();
+  for(var i=0;i<10;i++){
+    var ang=Math.PI/2 + i*Math.PI/5;
+    var rad=(i%2===0)?r:r*0.42;
+    var x=cx+rad*Math.cos(ang), y=cy-rad*Math.sin(ang);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawBooksIllo(ctx,x,y){
+  // پشته کتاب
+  var colors=['#f97316','#22c55e','#2563eb'];
+  var bw=190, bh=34;
+  for(var i=0;i<3;i++){
+    var by=y - i*(bh+4);
+    ctx.fillStyle=colors[i];
+    roundRect(ctx,x,by-bh,bw,bh,6); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.55)';
+    roundRect(ctx,x+8,by-bh+7,bw-16,6,3); ctx.fill();
+  }
+  // لیوان مداد
+  var cupX=x+bw*0.32, cupY=y-3*(bh+4)+2, cupW=90, cupH=60;
+  ctx.fillStyle='#facc15';
+  ctx.beginPath();
+  ctx.moveTo(cupX-cupW/2+8,cupY-cupH); ctx.lineTo(cupX+cupW/2-8,cupY-cupH);
+  ctx.lineTo(cupX+cupW/2,cupY); ctx.lineTo(cupX-cupW/2,cupY); ctx.closePath(); ctx.fill();
+  var pencilColors=['#dc2626','#f97316','#16a34a','#2563eb','#7c3aed'];
+  for(var p=0;p<5;p++){
+    var px=cupX-cupW/2+14+p*16;
+    ctx.strokeStyle=pencilColors[p]; ctx.lineWidth=8; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(px,cupY-cupH+6); ctx.lineTo(px-6+p*3,cupY-cupH-46-(p%2)*10); ctx.stroke();
+  }
+  star(ctx,x+40,y-3*(bh+4)-70,16,'#f7b500');
+  star(ctx,x+150,y-3*(bh+4)-30,11,'#f7b500');
+}
+function drawSunRainbowIllo(ctx,cx,cy){
+  // ابر
+  ctx.fillStyle='#fff';
+  [[-40,26,30],[0,14,38],[40,26,28]].forEach(function(c){
+    ctx.beginPath(); ctx.arc(cx+70+c[0],cy+70+c[1],c[2],0,Math.PI*2); ctx.fill();
+  });
+  // رنگین‌کمان
+  var rColors=['#ef4444','#f59e0b','#22c55e','#3b82f6'];
+  for(var i=0;i<4;i++){
+    ctx.beginPath();
+    ctx.arc(cx,cy+95,120-i*22,Math.PI,Math.PI*2);
+    ctx.lineWidth=20; ctx.strokeStyle=rColors[i]; ctx.stroke();
+  }
+  // خورشید
+  var sx=cx+20, sy=cy-45, sr=48;
+  ctx.strokeStyle='#f7b500'; ctx.lineWidth=7; ctx.lineCap='round';
+  for(var a=0;a<12;a++){
+    var ang=a*Math.PI/6;
+    ctx.beginPath();
+    ctx.moveTo(sx+Math.cos(ang)*(sr+8), sy+Math.sin(ang)*(sr+8));
+    ctx.lineTo(sx+Math.cos(ang)*(sr+26), sy+Math.sin(ang)*(sr+26));
+    ctx.stroke();
+  }
+  ctx.fillStyle='#facc15'; ctx.beginPath(); ctx.arc(sx,sy,sr,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,140,140,.55)';
+  ctx.beginPath(); ctx.arc(sx-22,sy+14,8,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sx+22,sy+14,8,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='#7c4a03'; ctx.lineWidth=4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(sx-14,sy-4,5,Math.PI*0.15,Math.PI*0.85); ctx.stroke();
+  ctx.beginPath(); ctx.arc(sx+14,sy-4,5,Math.PI*0.15,Math.PI*0.85); ctx.stroke();
+  ctx.beginPath(); ctx.arc(sx,sy+10,14,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
+  star(ctx,cx-70,cy+30,14,'#f7b500');
+}
+function drawHills(ctx,W,y){
+  ctx.fillStyle='#bfe3f7';
+  ctx.beginPath(); ctx.moveTo(0,y+40);
+  ctx.quadraticCurveTo(W*0.25,y-30,W*0.5,y+10);
+  ctx.quadraticCurveTo(W*0.75,y+50,W,y-10);
+  ctx.lineTo(W,y+120); ctx.lineTo(0,y+120); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#4caf50';
+  ctx.beginPath(); ctx.moveTo(0,y+65);
+  ctx.quadraticCurveTo(W*0.22,y+15,W*0.48,y+55);
+  ctx.quadraticCurveTo(W*0.75,y+95,W,y+45);
+  ctx.lineTo(W,y+130); ctx.lineTo(0,y+130); ctx.closePath(); ctx.fill();
+}
+
+async function drawCard(data){
+  var ROW_DEFS=[
+    {key:'fullname', label:'نام و نام خانوادگی', color:'#1e3a8a', icon:'🧑'},
+    {key:'grade',    label:'پایه',                color:'#16a34a', icon:'🎓'},
+    {key:'class',    label:'کلاس',                color:'#ea580c', icon:'👥'},
+    {key:'teacher',  label:'نام معلم',            color:'#7c3aed', icon:'🧑\u200d🏫'},
+    {key:'school',   label:'نام مدرسه',           color:'#dc2626', icon:'🏫'}
+  ];
+  var fullName = ((data['نام']||'') + ' ' + (data['نام خانوادگی']||'')).trim();
+  var values = {
+    fullname: fullName,
+    grade: data['پایه']||'',
+    class: data['کلاس']||'',
+    teacher: data['نام معلم']||'',
+    school: SCHOOL_NAME
+  };
+  var rows = ROW_DEFS.filter(function(r){ return (values[r.key]||'').toString().trim()!==''; });
+
+  var W=1000;
+  var topH=660;         // فضای بالا: نوار عنوان + عکس + تصویرسازی‌ها
+  var rowH=100, rowGap=18;
+  var H = topH + rows.length*(rowH+rowGap) + 70;
+
+  var canvas = document.getElementById('cardCanvas');
+  canvas.width=W; canvas.height=H;
+  var ctx = canvas.getContext('2d');
+  var cx = W/2;
+  ctx.clearRect(0,0,W,H);
+
+  // ===== کپسول بیرونی (بالا کمی گرد و پهن، پایین کاملا نیم‌دایره) =====
+  var pad=18, botR=W/2-pad, topR=280;
+  ctx.fillStyle='#ffffff';
+  capsulePath(ctx,pad,pad,W-2*pad,H-2*pad,topR,botR); ctx.fill();
+  var ringGrad=ctx.createLinearGradient(0,0,W,H);
+  ringGrad.addColorStop(0,'#1e3a8a'); ringGrad.addColorStop(1,'#2563eb');
+  ctx.lineWidth=22; ctx.strokeStyle=ringGrad;
+  capsulePath(ctx,pad+11,pad+11,W-2*pad-22,H-2*pad-22,topR-11,botR-11); ctx.stroke();
+  ctx.setLineDash([5,9]); ctx.lineWidth=4; ctx.strokeStyle='#c9a227';
+  capsulePath(ctx,pad+34,pad+34,W-2*pad-68,H-2*pad-68,topR-34,botR-34); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // ===== نوار عنوان بالا (دو خط) — با تنظیم خودکار اندازه فونت برای جا شدن متن =====
+  var bw=610, bh=140, bx=cx-bw/2, by=68;
+  var titleFont=40;
+  ctx.font='700 '+titleFont+'px Tahoma, sans-serif';
+  while(ctx.measureText(SCHOOL_NAME).width > bw-90 && titleFont>20){
+    titleFont-=2;
+    ctx.font='700 '+titleFont+'px Tahoma, sans-serif';
+  }
+  var bandGrad=ctx.createLinearGradient(bx,by,bx+bw,by+bh);
+  bandGrad.addColorStop(0,'#1e3a8a'); bandGrad.addColorStop(1,'#2563eb');
+  ctx.fillStyle=bandGrad; roundRect(ctx,bx,by,bw,bh,bh/2); ctx.fill();
+  ctx.lineWidth=5; ctx.strokeStyle='#c9a227'; roundRect(ctx,bx,by,bw,bh,bh/2); ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='700 '+titleFont+'px Tahoma, sans-serif';
+  ctx.fillText(SCHOOL_NAME, cx, by+bh*0.4);
+  ctx.font='400 25px Tahoma, sans-serif';
+  ctx.fillText(SCHOOL_MOTTO, cx, by+bh*0.75);
+
+  // ===== نشان‌های دو طرف نوار =====
+  drawFlagBadge(ctx, bx-72, by+bh*0.55, 52);
+  drawIconBadge(ctx, bx+bw+72, by+bh*0.55, 52, '🏫', '#fff');
+
+  // ===== تصویرسازی‌های تزئینی =====
+  drawBooksIllo(ctx, 55, by+bh+300);
+  drawSunRainbowIllo(ctx, W-255, by+bh+195);
+  drawHills(ctx, W, by+bh+270);
+
+  // ===== عکس دایره‌ای دانش‌آموز =====
+  var pr=175, py=by+bh+185;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,py,pr+15,0,Math.PI*2);
+  ctx.fillStyle='#fff7e6'; ctx.fill();
+  ctx.lineWidth=8; ctx.strokeStyle='#c9a227'; ctx.stroke();
+  ctx.restore();
+
+  var img = await loadImg(data['عکس']);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,py,pr,0,Math.PI*2); ctx.closePath(); ctx.clip();
+  if(img){
+    var iw=img.width, ih=img.height, side=Math.min(iw,ih);
+    var sx=(iw-side)/2, sy=(ih-side)/2;
+    ctx.drawImage(img, sx, sy, side, side, cx-pr, py-pr, pr*2, pr*2);
+  }else{
+    ctx.fillStyle='#e2e8f0'; ctx.fillRect(cx-pr,py-pr,pr*2,pr*2);
+    ctx.fillStyle='#94a3b8'; ctx.font='110px Tahoma';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('👤', cx, py+10);
+  }
+  ctx.restore();
+  ctx.lineWidth=6; ctx.strokeStyle='#ffffff';
+  ctx.beginPath(); ctx.arc(cx,py,pr,0,Math.PI*2); ctx.stroke();
+
+  // ===== ردیف‌های اطلاعات =====
+  var rowW=880, rowX=cx-rowW/2, labelW=370;
+  var rowStartY = topH;
+  rows.forEach(function(row,i){
+    var ry = rowStartY + i*(rowH+rowGap);
+    // نوار سفید کامل ردیف
+    ctx.fillStyle='#fffdf5';
+    roundRect(ctx,rowX,ry,rowW,rowH,rowH/2); ctx.fill();
+    ctx.lineWidth=4; ctx.strokeStyle='#c9a227';
+    roundRect(ctx,rowX,ry,rowW,rowH,rowH/2); ctx.stroke();
+    // کپسول رنگی برچسب سمت راست
+    var lx = rowX+rowW-labelW;
+    ctx.fillStyle=row.color;
+    rightRoundRect(ctx,lx,ry,labelW,rowH,rowH/2); ctx.fill();
+    // آیکون
+    drawIconBadge(ctx, lx+labelW-56, ry+rowH/2, 32, row.icon, '#fff');
+    // متن برچسب (با تنظیم خودکار اندازه فونت)
+    var labelMaxW = labelW-140;
+    var lf=30;
+    ctx.font='700 '+lf+'px Tahoma, sans-serif';
+    while(ctx.measureText(row.label).width > labelMaxW && lf>16){ lf-=2; ctx.font='700 '+lf+'px Tahoma, sans-serif'; }
+    ctx.fillStyle='#fff'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(row.label, lx+labelW-100, ry+rowH/2+2);
+    // متن مقدار (با تنظیم خودکار اندازه فونت)
+    var valText=String(values[row.key]);
+    var valMaxW = rowW-labelW-60;
+    var vf=32;
+    ctx.font='700 '+vf+'px Tahoma, sans-serif';
+    while(ctx.measureText(valText).width > valMaxW && vf>16){ vf-=2; ctx.font='700 '+vf+'px Tahoma, sans-serif'; }
+    ctx.fillStyle='#1e293b'; ctx.textAlign='center';
+    ctx.fillText(valText, rowX+(rowW-labelW)/2, ry+rowH/2+2);
+  });
+}
+
+function downloadCard(){
+  var canvas = document.getElementById('cardCanvas');
+  try{
+    var url = canvas.toDataURL('image/png');
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'کارت_پروفایل.png';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }catch(e){
+    alert('امکان دانلود نبود؛ احتمالاً عکس از سایتی بارگذاری شده که اجازه دانلود نمی‌دهد.');
+  }
+}
+</script>
+</body>
+</html>
